@@ -1,0 +1,310 @@
+---
+title: "Word Prediction Application"
+author: "Kyle Rozic"
+date: "9/22/2021"
+output: slidy_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+## Project Description
+
+- The goal of this project was to produce an application using the SwiftKey data corpus that predicts the next word after a text query.
+- Frequency tables were produced with `tidytext` and algorithms were created to parse these document-term matrixes.
+- Two algorithms were created:
+
+1. Single word prediction
+2. A table of multiple predictions
+
+- Both are provided in the application and the user can use their own discretion if context was lost in the ngrams.
+- **Unfortunately, a more context specific algorithm was produced with 'quadgram' data but the shiny server continued to crash due to memory overload. The examples here display the original algorithms, but the server is only hosting trigram and bigram queries.**
+- The original app can be downloaded from my [github]() if interested.
+
+## Single Probability Code
+
+- Some queries produce more than one word as the top position. I had the idea to break a tie by comparing their respective probabilities at the next highest ngram level.
+- 'adjustment' functions are used to multiply the probability of the other ngram which produces a more accurate probability.
+- The code for this algorithm is as follows:
+
+```{r}
+library(tibble)
+library(dplyr)
+library(tidytext)
+library(tidyr)
+library(quanteda)
+library(stringr)
+library(data.table)
+
+load("../data/frequency_tables/bigram_freq_matrix.RData")
+load("../data/frequency_tables/trigram_freq_matrix.RData")
+load("../data/frequency_tables/quadgram_freq_matrix.RData")
+
+bigram_adjustment <- function(input_word3, prediction, prob){
+        search_query <- input_word3
+        col_indexes <- colnames(bigram_freq_matrix) %in% prediction
+        prediction <- colnames(bigram_freq_matrix[,col_indexes])
+        freq_vector <- as.vector(bigram_freq_matrix[search_query, col_indexes] * prob)
+        prob <- max(freq_vector)
+        prediction <- prediction[which(freq_vector == prob)]
+        return(list(pred = prediction, prob = prob))
+}
+trigram_adjustment <- function(input_word2, input_word3, prediction, prob){
+        search_query <- paste(input_word2, input_word3)
+        col_indexes <- colnames(trigram_freq_matrix) %in% prediction
+        prediction <- colnames(trigram_freq_matrix[,col_indexes])
+        freq_vector <- as.vector(trigram_freq_matrix[search_query, col_indexes] * prob)
+        prob <- max(freq_vector)
+        prediction <- prediction[which(freq_vector == prob)]
+        return(list(pred = prediction, prob = prob))
+}
+quad_predict <- function(input_word1, input_word2, input_word3){
+        search_query <- paste(input_word1, input_word2, input_word3)
+        freq_vector <- as.vector(quadgram_freq_matrix[search_query,])
+        word_vector <- colnames(quadgram_freq_matrix)
+        prob <- max(freq_vector)
+        prediction <- list(pred = word_vector[which(freq_vector == prob)],
+                           prob = prob)
+        if(length(prediction[[1]]) > 1){
+                prediction <- trigram_adjustment(input_word2,
+                                                 input_word3,
+                                                 prediction$pred,
+                                                 prediction$prob)
+                if(length(prediction[[1]]) > 1){
+                        prediction <- bigram_adjustment(input_word3,
+                                                        prediction$pred,
+                                                        prediction$prob)
+                        return(prediction)
+                }else{
+                        return(prediction)
+                }
+        }else{
+                return(prediction)
+        }
+}
+
+tri_predict <- function(input_word2, input_word3){
+        search_query <- paste(input_word2, input_word3)
+        freq_vector <- as.vector(trigram_freq_matrix[search_query,])
+        word_vector <- colnames(trigram_freq_matrix)
+        prob <- max(freq_vector)
+        prediction <- list(pred = word_vector[which(freq_vector == prob)],
+                           prob = prob)
+        if(length(prediction[[1]]) > 1){
+                prediction <- bigram_adjustment(prediction$pred,
+                                                prediction$prob)
+                return(prediction)
+        }else{
+                return(prediction)
+        }
+}
+bi_predict <- function(input_word3){
+        search_query <- input_word3
+        freq_vector <- as.vector(bigram_freq_matrix[search_query,])
+        word_vector <- colnames(bigram_freq_matrix)
+        prob <- max(freq_vector)
+        prediction <- list(pred = word_vector[which(freq_vector == prob)],
+                           prob = prob)
+        return(prediction)
+}
+
+predict_word <- function(input_text){
+        input_text <- gsub('[^a-zA-Z[:space:]]', '', input_text)
+        input_text <- str_squish(input_text)
+        input_words <- as.data.frame(input_text) %>% unnest_tokens(word, input_text)
+        input_word1 <- input_words[nrow(input_words)-2,]
+        input_word2 <- input_words[nrow(input_words)-1,]
+        input_word3 <- input_words[nrow(input_words),]
+        
+        if(nrow(input_words) >= 3){
+                tryCatch(
+                        quad_predict(input_word1, input_word2, input_word3),
+                        error = function(e){
+                                tryCatch(
+                                        tri_predict(input_word2, input_word3),
+                                        error = function(e){
+                                                tryCatch(
+                                                        bi_predict(input_word3),
+                                                        error = function(e){
+                                                                return('No predictions for query.')
+                                                        }
+                                                )
+                                        }
+                                )
+                        }
+                        )
+        }else if(nrow(input_words) == 2){
+                tryCatch(
+                        tri_predict(input_word2, input_word3),
+                        error = function(e){
+                                tryCatch(
+                                        bi_predict(input_word3),
+                                        error = function(e){
+                                                return('No predictions for query.')
+                                        }
+                                )
+                        }
+                        )
+        }else if(nrow(input_words) == 1){
+                tryCatch(
+                        bi_predict(input_word3),
+                        error = function(e){
+                                return('No predictions for query.')
+                        }
+                )
+        }
+}
+```
+
+## Table of Probabilities
+
+- The table of probabilities provides more information since the context is sometimes lost even at the level of "quadgram"
+- Some queries produce less than 3 results from a frequency table and show "Inf" as their probability value
+- Since multiple tables may be used to produce a minimum of 3 results, a column was added to describe where the result was called from.
+- If multiple words share the same probability, they will occupy the same cell and be separated by a ','.
+- The code for this algorithm is as follows:
+
+```{r}
+library(tibble)
+library(dplyr)
+library(tidytext)
+library(tidyr)
+library(quanteda)
+library(stringr)
+library(data.table)
+
+load("../data/frequency_tables/bigram_freq_matrix.RData")
+load("../data/frequency_tables/trigram_freq_matrix.RData")
+load("../data/frequency_tables/quadgram_freq_matrix.RData")
+
+quad_predict_multi <- function(input_word1, input_word2, input_word3){
+        search_query <- paste(input_word1, input_word2, input_word3)
+        freq_vector <- as.vector(quadgram_freq_matrix[search_query,])
+        word_vector <- colnames(quadgram_freq_matrix)
+        prob1 <- max(freq_vector[freq_vector != 0])
+        prob2 <- max(freq_vector[freq_vector != 0 & freq_vector != prob1])
+        prob3 <- max(freq_vector[freq_vector != 0 & freq_vector != prob1 & freq_vector != prob2])
+        prediction <- data.frame(predictions = c(paste(word_vector[which(freq_vector == prob1)], collapse = ', '),
+                                                 paste(word_vector[which(freq_vector == prob2)], collapse = ', '),
+                                                 paste(word_vector[which(freq_vector == prob3)], collapse = ', ')),
+                                 probability = c(prob1, prob2, prob3),
+                                 table_type = 'quadgram')
+        if (sum(prediction$prob == -Inf)){
+                prediction2 <- tri_predict_multi(input_word2, input_word3)
+                prediction <- rbind(prediction, prediction2)
+                if (sum(prediction2$prob == -Inf)){
+                        prediction3 <- bi_predict_multi(input_word3)
+                        prediction <- rbind(prediction, prediction3)
+                }
+        }
+        return(prediction)
+}
+
+tri_predict_multi <- function(input_word2, input_word3){
+        search_query <- paste(input_word2, input_word3)
+        freq_vector <- as.vector(trigram_freq_matrix[search_query,])
+        word_vector <- colnames(trigram_freq_matrix)
+        prob1 <- max(freq_vector[freq_vector != 0])
+        prob2 <- max(freq_vector[freq_vector != 0 & freq_vector != prob1])
+        prob3 <- max(freq_vector[freq_vector != 0 & freq_vector != prob1 & freq_vector != prob2])
+        prediction <- data.frame(predictions = c(paste(word_vector[which(freq_vector == prob1)], collapse = ', '),
+                                                 paste(word_vector[which(freq_vector == prob2)], collapse = ', '),
+                                                 paste(word_vector[which(freq_vector == prob3)], collapse = ', ')),
+                                 probability = c(prob1, prob2, prob3),
+                                 table_type = 'trigram')
+        if (sum(prediction$prob == -Inf)){
+                prediction2 <- bi_predict_multi(input_word3)
+                prediction <- rbind(prediction, prediction2)
+        }
+        return(prediction)
+}
+
+bi_predict_multi <- function(input_word3){
+        search_query <- input_word3
+        freq_vector <- as.vector(bigram_freq_matrix[search_query,])
+        word_vector <- colnames(bigram_freq_matrix)
+        prob1 <- max(freq_vector[freq_vector != 0])
+        prob2 <- max(freq_vector[freq_vector != 0 & freq_vector != prob1])
+        prob3 <- max(freq_vector[freq_vector != 0 & freq_vector != prob1 & freq_vector != prob2])
+        prediction <- data.frame(predictions = c(paste(word_vector[which(freq_vector == prob1)], collapse = ', '),
+                                                 paste(word_vector[which(freq_vector == prob2)], collapse = ', '),
+                                                 paste(word_vector[which(freq_vector == prob3)], collapse = ', ')),
+                                 probability = c(prob1, prob2, prob3),
+                                 table_type = 'bigram')
+        return(prediction)
+}
+
+predict_words <- function(input_text){
+        input_text <- gsub('[^a-zA-Z[:space:]]', '', input_text)
+        input_text <- str_squish(input_text)
+        input_words <- as.data.frame(input_text) %>% unnest_tokens(word, input_text)
+        input_word1 <- input_words[nrow(input_words)-2,]
+        input_word2 <- input_words[nrow(input_words)-1,]
+        input_word3 <- input_words[nrow(input_words),]
+        
+        if(nrow(input_words) >= 3){
+                tryCatch(
+                        quad_predict_multi(input_word1, input_word2, input_word3),
+                        error = function(e){
+                                tryCatch(
+                                        tri_predict_multi(input_word2, input_word3),
+                                        error = function(e){
+                                                tryCatch(
+                                                        bi_predict_multi(input_word3),
+                                                        error = function(e){
+                                                                return('No predictions for query.')
+                                                        }
+                                                )
+                                        }
+                                )
+                        }
+                        )
+        }else if(nrow(input_words) == 2){
+                tryCatch(
+                        tri_predict_multi(input_word2, input_word3),
+                        error = function(e){
+                                tryCatch(
+                                        bi_predict_multi(input_word3),
+                                        error = function(e){
+                                                return('No predictions for query.')
+                                        }
+                                )
+                        }
+                        )
+        }else if(nrow(input_words) == 1){
+                tryCatch(
+                        bi_predict_multi(input_word3),
+                        error = function(e){
+                                return('No predictions for query.')
+                        }
+                )
+        }
+}
+```
+
+## Image of Application and Loading Time
+
+- Loading takes ~25 seconds, at which point the text "The word with the highest probability is:" appears on the main panel.
+- Top word prediction is ~6 seconds
+- Word table prediction is ~12 seconds
+- The application takes ~30 seconds to load, then your query can be input into the text box and clicking "Predict Words" will produce your results.
+
+[Link to App](https://krozic.shinyapps.io/Word_Prediction_Application/)
+
+![Shiny App](app_pic.jpg)
+
+
+
+## Conclusions
+
+- Application worked well producing results within a reasonable time frame.
+
+**Areas of Improvement:**
+
+- Using probabilities in a Markov Chain has many limitations
+- Context is lost at quadgram level
+- Higher ngrams tables take a long time to compute
+- If more of the corpus was utilized the tables would also be much larger in size.
+- In the future I plan to explore deep learning NLP to compare capabilities. 
+- At this point it is widely agreed that deep learning NLP like LSTM is much more appropriate for word prediction apps.
