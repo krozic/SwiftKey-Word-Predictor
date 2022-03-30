@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
 
 - Both are provided in the application and the user can use their own discretion if context was lost in the ngrams.
 - **Unfortunately, a more context specific algorithm was produced with 'quadgram' data but the shiny server continued to crash due to memory overload. The examples here display the original algorithms, but the server is only hosting trigram and bigram queries.**
-- The original app can be downloaded from my [github]() if interested.
+- The original app can be downloaded from my [github](https://github.com/krozic/SwiftKey-Word-Predictor) if interested.
 
 ## Single Probability Code
 

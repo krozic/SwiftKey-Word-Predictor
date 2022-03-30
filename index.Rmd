@@ -1,7 +1,7 @@
 ---
-title: "SwiftKey Word Predictor"
+title: "Word Prediction Model"
 author: "Kyle Rozic"
-date: "August 30, 2021"
+date:
 output: 
     html_document:
         toc: TRUE
@@ -30,9 +30,9 @@ knitr::opts_chunk$set(cache = T, message = F, warning = F)
 
 ## Synopsis 
 
-The data for this project was provided by SwiftKey and can be found [here](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip). The dataset comprises of three character vectors: news, blogs, and twitter with each index representing a single sample (i.e. a full article or tweet).
+The raw data for this project comprises of data scraped from the web and stored in three text files (each line represents one sample). The three files were imported as three character vectors: news, blogs, and twitter with each index representing a single sample (i.e. a full article or tweet).
 
-The goal of this project is to produce an application that accepts a string of words and predicts the next word using a corpus sample extracted from the SwiftKey dataset.
+The goal of this project is to produce an application that accepts a string of words and predicts the next word using a corpus sample extracted from the raw data above.
 
 The large corpus of text documents was processed, cleaned, analyzed and visualized using a number of language processing packages in R including `tidytext`, `stringr` and `wordcloud` to name a few. `tidytext` is especially useful as it provides the capability to interact with textual data using 'dplyr' like functions for quick and easy exploration.
 
@@ -40,7 +40,7 @@ A Markov Chain model is produced using quadgrams, trigrams, and bigrams structur
 
 In a future project I plan to explore the use of LSTM deep learning to compare the effectiveness of these different methods at predicting the next word in a sentence.
 
-The repository for this project can be found on my [github](https://github.com/krozic/SwiftKey-Word-Predictor)
+The repository for this project can be found on my [github](https://github.com/krozic/Word-Prediction-Model)
 
 ## Getting and Processing the Data
 
